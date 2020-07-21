@@ -4,6 +4,13 @@ from sklearn.cluster import DBSCAN
 import h5py
 
 class Domain:
+    """
+    TODO:
+        pre_filtering:
+            if pot_ene+thm_ene+mag_ene > 0, then it is impossible that the
+            region is bounded if count kin_ene.
+            Thus, can pre-filter the data.
+    """
     def __init__(self, flnm=None, data=None, data_shape=None):
         if flnm is not None:
             self.flnm = flnm
@@ -135,8 +142,13 @@ class Domain:
 
     def load_zeus(self):
         data = {}
+        keys = ['gas_density', 'grav_pot',  #'gas_energy',
+                'i_mag_field', 'i_velocity',
+                'j_mag_field', 'j_velocity',
+                'k_mag_field', 'k_velocity']
         with h5py.File(self.flnm,"r") as f:
-            for key in list(f.keys()):
+            # for key in list(f.keys()):
+            for key in keys:
                 data[key] = f[key][()].ravel()
             data_shape = f[key].shape
         data['pos_i'],data['pos_j'],data['pos_k'] = np.meshgrid(*[np.arange(i)
