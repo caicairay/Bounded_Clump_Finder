@@ -149,6 +149,11 @@ class Domain:
 
 
 class Region:
+    """
+    TODO:
+        Now, assuming uniform grid, and assuming dv = 1 for all grid.
+        Therefore, density = mass. Need more work for AMR data.
+    """
     def __init__(self, index):
         self.index = index
     @property
@@ -156,6 +161,9 @@ class Region:
         return len(self.index)
 
     def _kinetic_energy(self, data):
+        """
+        calculate kinetic energy for given data within the region.
+        """
         dset_name = 'gas_density'
         if dset_name in data.keys():
             density = data[dset_name][self.index]
@@ -171,17 +179,31 @@ class Region:
         kinetic_ene = (0.5*density*v2).sum()
         return kinetic_ene
     def _magnetic_energy(self, data):
-        magnetic_ene = 0
+        b2 = 0
         for idir in 'ijk':
-            dset_name = "%s_magnetic_field" % idir
+            dset_name = "%s_mag_field" % idir
             if dset_name in data.keys():
-                magnetic_ene +=  0.5*(data[dset_name][self.index]**2).sum()
+                b2 +=  data[dset_name][self.index]**2
+        magnetic_ene = (0.5*b2).sum()
         return magnetic_ene
-    def _thermal_energy(self, data):
-        pass
+    def _thermal_energy(self, data, sound_speed):
+        dset_name = 'gas_density'
+        density = data[dset_name][self.index]
+        thermal_ene = (density*sound_speed**2).sum()
+        return thermal_ene
+
+    def _potential_energy(self, data):
+        dset_name = 'gas_density'
+        density = data[dset_name][self.index]
+        dset_name = 'grav_pot'
+        grav_pot = data[dset_name][self.index]
+        # Note the sign of input potential has been inverted
+        pot_ene = -(density*grav_pot).sum()
+        return pot_ene
 
     def _check_boundness(self, data, fields = 
-            ['kinetic_energy','magnetic_enenrgy']):
+            ['kinetic_energy','magnetic_enenrgy','thermal_energy'],
+            sound_speed = 1.):
         total_ene = 0
         # count kinetic energy density
         if 'kinetic_energy' in fields:
@@ -191,11 +213,9 @@ class Region:
             total_ene += self._magnetic_energy(data)
         # count thermal energy density
         if 'thermal_energy' in fields:
-            total_ene += self._thermal_energy(data)
-        # calculate potential enenrgy density, 
-        # Note the sign of input potential has been inverted
-        grav_pot = - data['grav_pot'][self.index].sum()
-        total_ene += grav_pot
+            total_ene += self._thermal_energy(data, sound_speed)
+        # count potential enenrgy density, 
+        total_ene += self._potential_energy(data)
 
         # if total enerngy is negative, the region is gravitationally bounded
         if total_ene <= 0:
