@@ -4,15 +4,6 @@ from sklearn.cluster import DBSCAN
 import h5py
 
 class Domain:
-    """
-    TODO:
-        pre_filtering:
-            if pot_ene+thm_ene+mag_ene > 0, then it is impossible that the
-            region is bounded if count kin_ene.
-            Thus, can pre-filter the data.
-        pre_load:
-            save loaded data to disk, no need to reload again for later use.
-    """
     def __init__(self, flnm=None, data=None, data_shape=None):
         if flnm is not None:
             self.flnm = flnm
@@ -198,17 +189,16 @@ class Domain:
         # boundness
         total_ene = pot_ene+thermal_ene+magnetic_ene
         sub = np.argwhere(total_ene < 0)
-        self.index = np.asarray(sub)
         for key in self.data.keys():
-            self.data[key]=self.data[key][self.index].ravel()
+            self.data[key]=self.data[key][sub].ravel()
+        self.index = np.arange(len(sub))
 
     def dump_data(self):
         import pickle
-        parameters = ['data_shape', 'sound_speed']
+        parameters = ['data_shape','index', 'sound_speed']
         for para in parameters:
             if hasattr(self,para):
                 self.data[para] = getattr(self, para)
-        self.data['index'] = np.arange(self.num_points)
         a_file = open("preloaded_data.pkl", "wb")
         pickle.dump(self.data, a_file)
         a_file.close()
