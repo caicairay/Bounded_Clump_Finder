@@ -4,6 +4,11 @@ from sklearn.cluster import DBSCAN
 import h5py
 
 class Domain:
+    """
+    TODO:
+        pre_filtering:
+            has problem, do not use, need check
+    """
     def __init__(self, flnm=None, data=None, data_shape=None):
         if flnm is not None:
             self.flnm = flnm
@@ -69,16 +74,13 @@ class Domain:
             region._check_boundness(self.data, **kwds)
         return True
     def _open_h5(self, initialize = False):
-        hf = h5py.File('result.h5', 'w')
         dset_name = 'bounded_region'
-        if dset_name not in hf:
+        if initialize:
+            hf = h5py.File('result.h5', 'w')
             empty_data = np.zeros(self.data_shape)
             hf.create_dataset(dset_name, data=empty_data)
         else:
-            if initialize:
-                del hf[dset_name]
-                empty_data = np.zeros(self.data_shape)
-                hf.create_dataset(dset_name, data=empty_data)
+            hf = h5py.File('result.h5', 'a')
         return hf
     def output_bounded_region(self):
         if self.num_bounded_regions == 0:
@@ -158,40 +160,7 @@ class Domain:
         self.index = np.arange(np.prod(data_shape))
         
     def pre_filter(self):
-        if (self.num_regions != 0 or
-                self.exist_contour):
-            print ("pre_filter: there are regions and contour defined with in"\
-                    "Object, skipping pre-filter")
-            return
-        # calculate magnetic energy
-        b2 = 0
-        for idir in 'ijk':
-            dset_name = "%s_mag_field" % idir
-            if dset_name in self.data.keys():
-                b2 +=  self.data[dset_name][self.index]**2
-        magnetic_ene = (0.5*b2)
-        # calculate thermal energy
-        try:
-            dset_name = 'gas_density'
-            density = self.data[dset_name][self.index]
-            thermal_ene = (density*self.sound_speed**2)
-        except AttributeError:
-            print ("define sound speed first")
-            sys.exit()
-        # calculate potential energy
-        dset_name = 'gas_density'
-        density = self.data[dset_name][self.index]
-        dset_name = 'grav_pot'
-        grav_pot = self.data[dset_name][self.index]
-        # Note the sign of input potential has been inverted
-        pot_ene = -(density*grav_pot)
-        # summary of energys without kinetic energy should < 0 to ensure
-        # boundness
-        total_ene = pot_ene+thermal_ene+magnetic_ene
-        sub = np.argwhere(total_ene < 0)
-        for key in self.data.keys():
-            self.data[key]=self.data[key][sub].ravel()
-        self.index = np.arange(len(sub))
+        pass
 
     def dump_data(self):
         import pickle
