@@ -7,7 +7,7 @@ class Domain:
     """
     TODO:
         pre_filtering:
-            has problem, do not use, need check
+            may have problem, need check
     """
     def __init__(self, flnm=None, data=None, data_shape=None):
         if flnm is not None:
@@ -160,7 +160,47 @@ class Domain:
         self.index = np.arange(np.prod(data_shape))
         
     def pre_filter(self):
-        pass
+        if (self.num_regions != 0 or
+                self.exist_contour):
+            print ("pre_filter: there are regions and contour defined with in"\
+                    "Object, skipping pre-filter")
+            return
+        if (self.num_regions != 0 or
+                self.exist_contour):
+            print ("pre_filter: there are regions and contour defined with in"\
+                    "Object, skipping pre-filter")
+            return
+        # calculate magnetic energy
+        b2 = 0
+        for idir in 'ijk':
+            dset_name = "%s_mag_field" % idir
+            if dset_name in self.data.keys():
+                b2 +=  self.data[dset_name][self.index]**2
+        magnetic_ene = (0.5*b2)
+        # calculate thermal energy
+        try:
+            dset_name = 'gas_density'
+            density = self.data[dset_name][self.index]
+            thermal_ene = (density*self.sound_speed**2)
+        except AttributeError:
+            print ("define sound speed first")
+            sys.exit()
+        # calculate potential energy
+        dset_name = 'gas_density'
+        density = self.data[dset_name][self.index]
+        dset_name = 'grav_pot'
+        grav_pot = self.data[dset_name][self.index]
+        # Note the sign of input potential has been inverted
+        pot_ene = -(density*grav_pot)
+        # summary of energys without kinetic energy should < 0 to ensure
+        # boundness
+        total_ene = pot_ene+thermal_ene+magnetic_ene
+        mask = np.argwhere(total_ene < 0)
+        pot_min = self.data['grav_pot'][mask].min()
+        sub = np.argwhere(self.data['grav_pot'] > 0.8*pot_min)
+        for key in self.data.keys():
+            self.data[key]=self.data[key][sub].ravel()
+        self.index = np.arange(len(sub))
 
     def dump_data(self):
         import pickle
