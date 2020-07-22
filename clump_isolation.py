@@ -10,6 +10,8 @@ class Domain:
             if pot_ene+thm_ene+mag_ene > 0, then it is impossible that the
             region is bounded if count kin_ene.
             Thus, can pre-filter the data.
+        pre_load:
+            save loaded data to disk, no need to reload again for later use.
     """
     def __init__(self, flnm=None, data=None, data_shape=None):
         if flnm is not None:
@@ -39,6 +41,8 @@ class Domain:
     @property
     def exist_contour(self):
         return bool(self.contour)
+    def set_sound_speed(self, snd):
+        self.sound_speed = snd
 
     def reset_Domain(self):
         self.contour = None
@@ -67,6 +71,9 @@ class Domain:
         if self.num_regions == 0:
             print("Domain: Domain have no regions, skippting [check_boundness]")
             return False
+        if 'sound_speed' not in kwds.keys():
+            if hasattr(self,'sound_speed'):
+                kwds['sound_speed'] = self.sound_speed
         for region in self.regions:
             region._check_boundness(self.data, **kwds)
         return True
@@ -143,9 +150,9 @@ class Domain:
     def load_zeus(self):
         data = {}
         keys = ['gas_density', 'grav_pot',  #'gas_energy',
-                'i_mag_field', 'i_velocity',
-                'j_mag_field', 'j_velocity',
-                'k_mag_field', 'k_velocity']
+                'i_mag_field', 'j_mag_field', 'k_mag_field', 
+                'i_velocity',  'j_velocity',  'k_velocity'
+                ]
         with h5py.File(self.flnm,"r") as f:
             # for key in list(f.keys()):
             for key in keys:
@@ -158,6 +165,63 @@ class Domain:
         self.data = data
         self.data_shape = data_shape
         self.index = np.arange(np.prod(data_shape))
+        
+    def pre_filter(self):
+        if (self.num_regions != 0 or
+                self.exist_contour):
+            print ("pre_filter: there are regions and contour defined with in"\
+                    "Object, skipping pre-filter")
+            return
+        # calculate magnetic energy
+        b2 = 0
+        for idir in 'ijk':
+            dset_name = "%s_mag_field" % idir
+            if dset_name in self.data.keys():
+                b2 +=  self.data[dset_name][self.index]**2
+        magnetic_ene = (0.5*b2)
+        # calculate thermal energy
+        try:
+            dset_name = 'gas_density'
+            density = self.data[dset_name][self.index]
+            thermal_ene = (density*self.sound_speed**2)
+        except AttributeError:
+            print ("define sound speed first")
+            sys.exit()
+        # calculate potential energy
+        dset_name = 'gas_density'
+        density = self.data[dset_name][self.index]
+        dset_name = 'grav_pot'
+        grav_pot = self.data[dset_name][self.index]
+        # Note the sign of input potential has been inverted
+        pot_ene = -(density*grav_pot)
+        # summary of energys without kinetic energy should < 0 to ensure
+        # boundness
+        total_ene = pot_ene+thermal_ene+magnetic_ene
+        sub = np.argwhere(total_ene < 0)
+        self.index = np.asarray(sub)
+        for key in self.data.keys():
+            self.data[key]=self.data[key][self.index].ravel()
+
+    def dump_data(self):
+        import pickle
+        parameters = ['data_shape', 'sound_speed']
+        for para in parameters:
+            if hasattr(self,para):
+                self.data[para] = getattr(self, para)
+        self.data['index'] = np.arange(self.num_points)
+        a_file = open("preloaded_data.pkl", "wb")
+        pickle.dump(self.data, a_file)
+        a_file.close()
+    def load_data(self):
+        import pickle
+        parameters = ['data_shape', 'index', 'sound_speed']
+        a_file = open('preloaded_data.pkl', 'rb')
+        self.data = pickle.load(a_file)
+        for para in parameters:
+            setattr(self, para, self.data[para])
+            self.data.pop(para)
+        a_file.close()
+        self.index = np.arange(len(self.data['grav_pot']))
 
 
 class Region:
@@ -215,7 +279,7 @@ class Region:
 
     def _check_boundness(self, data, fields = 
             ['kinetic_energy','magnetic_enenrgy','thermal_energy'],
-            sound_speed = 1.):
+            sound_speed = None):
         total_ene = 0
         # count kinetic energy density
         if 'kinetic_energy' in fields:
@@ -224,8 +288,12 @@ class Region:
         if 'magnetic_energy' in fields:
             total_ene += self._magnetic_energy(data)
         # count thermal energy density
-        if 'thermal_energy' in fields:
+        if ('thermal_energy' in fields and 
+            sound_speed is not None):
             total_ene += self._thermal_energy(data, sound_speed)
+        elif 'thermal_energy' in fields:
+            print ("Please define sound speed")
+            sys.exit()
         # count potential enenrgy density, 
         total_ene += self._potential_energy(data)
 
