@@ -24,20 +24,18 @@ class Domain:
         self.sound_speed = snd
 
     def thresholding(self, threshold, field='grav_pot', layers=1):
-        data_main = self.data[field][()]
+        data_main = self.data[field]
         labels_in_main = np.logical_and(data_main > threshold, self.valid_domain)
-        indices = np.arange(-layers,layers)
-        labels_in = {}
-        for idir in range(3):
-            labels_in[idir] = np.take(labels_in_main,indices,axis=idir)
-
         labels_out_main = cc3d.connected_components(labels_in_main) # 26-connected
         N = np.max(labels_out_main)
-        labels_out = {}
+        # Dealing with boundary condition
+        indices = np.arange(-layers,layers)
+        labels_in = [np.take(labels_in_main,indices,axis=idir) for idir in range(3)]
         for idir in range(3):
             labels_out = cc3d.connected_components(labels_in[idir]) # 26-connected
-            if labels_out.sum() == 0:
-                continue
+            # if no labels at boundary, skip
+            if labels_out.sum() == 0: continue
+            # if there are labels at boundary
             labels = np.unique(labels_out)
             for label in labels:
                 ends = labels_out == label
@@ -45,10 +43,10 @@ class Domain:
                 end2 = np.take(ends, range(-layers,0), axis = idir)
                 domain_end1 = np.take(labels_out_main,range(-layers,0),axis=idir) 
                 domain_end2 = np.take(labels_out_main,range(0,layers), axis=idir) 
-                domain_label1 = int(np.unique(domain_end1[end1]))
-                domain_label2 = int(np.unique(domain_end2[end2]))
-                labels_out_main[labels_out_main == domain_label1] = N+label
-                labels_out_main[labels_out_main == domain_label2] = N+label
+                domain_label1 = np.unique(domain_end1[end1])
+                domain_label2 = np.unique(domain_end2[end2])
+                labels_out_main[np.isin(labels_out_main, domain_label1)] = N+label
+                labels_out_main[np.isin(labels_out_main, domain_label2)] = N+label
             N = np.max(labels_out_main)
         self.labels_out = labels_out_main
         self.labels = np.unique(labels_out_main)
@@ -127,15 +125,12 @@ class Domain:
             self.valid_domain[region] = False
 
     def load_zeus(self):
-        data = {}
         keys = ['gas_density', 'grav_pot',  #'gas_energy',
                 'i_mag_field', 'j_mag_field', 'k_mag_field', 
                 'i_velocity',  'j_velocity',  'k_velocity'
                 ]
         with h5py.File(self.flnm,"r") as f:
-            # for key in list(f.keys()):
-            for key in keys:
-                data[key] = f[key][()]
+            data = {key: f[key][()] for key in keys}
         self.data = data
-        self.data_shape = data[key].shape
+        self.data_shape = data['grav_pot'].shape
         self.valid_domain = np.ones(self.data_shape, dtype = bool)

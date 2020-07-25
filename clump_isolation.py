@@ -141,16 +141,13 @@ class Domain:
             self._sequence(th, **kwargs)
 
     def load_zeus(self):
-        data = {}
         keys = ['gas_density', 'grav_pot',  #'gas_energy',
                 'i_mag_field', 'j_mag_field', 'k_mag_field', 
                 'i_velocity',  'j_velocity',  'k_velocity'
                 ]
         with h5py.File(self.flnm,"r") as f:
-            # for key in list(f.keys()):
-            for key in keys:
-                data[key] = f[key][()].ravel()
-            data_shape = f[key].shape
+            data = {key: f[key][()].ravel() for key in keys}
+            data_shape = f['grav_pot'].shape
         data['pos_i'],data['pos_j'],data['pos_k'] = np.meshgrid(*[np.arange(i)
             for i in data_shape],indexing = 'ij')
         for idir in "ijk":
