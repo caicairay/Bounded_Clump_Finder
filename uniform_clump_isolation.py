@@ -12,10 +12,12 @@ class Domain:
     def __init__(self, flnm=None, data=None, data_shape = None):
         if flnm is not None:
             self.flnm = flnm
+            self.output_flnm = flnm+"_result.h5"
         elif data is not None:
             self.data = data
             self.data_shape = data_shape
             self.valid_domain = np.ones(data_shape)
+            self.output_flnm = "result.h5"
         else:
             sys.exit("flnm and data can not be None at the same time")
         self.outputed_region = 0
@@ -101,11 +103,11 @@ class Domain:
     def _open_h5(self, initialize = False):
         dset_name = 'bounded_region'
         if initialize:
-            hf = h5py.File('result.h5', 'w')
+            hf = h5py.File(self.output_flnm, 'w')
             empty_data = np.zeros(self.data_shape)
             hf.create_dataset(dset_name, data=empty_data)
         else:
-            hf = h5py.File('result.h5', 'a')
+            hf = h5py.File(self.output_flnm, 'a')
         return hf
     def output_bounded_region(self):
         if self.outputed_region == 0:
