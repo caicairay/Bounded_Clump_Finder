@@ -1,4 +1,3 @@
-import sys
 import numpy as np
 import h5py
 import cc3d
@@ -6,8 +5,7 @@ import cc3d
 class Domain:
     """
     TODO:
-        pre_filtering:
-            may have problem, need check
+        None
     """
     def __init__(self, flnm=None, data=None, data_shape = None):
         if flnm is not None:
@@ -16,7 +14,7 @@ class Domain:
         elif data is not None:
             self.data = data
             self.data_shape = data_shape
-            self.valid_domain = np.ones(data_shape)
+            self.valid_domain = np.ones(data_shape, dtype=np.int)
             self.output_flnm = "result.h5"
         else:
             sys.exit("flnm and data can not be None at the same time")
@@ -27,7 +25,7 @@ class Domain:
 
     def thresholding(self, threshold, field='grav_pot', layers=1):
         data_main = self.data[field]
-        labels_in_main = np.logical_and(data_main > threshold, self.valid_domain)
+        labels_in_main = data_main > threshold
         labels_out_main = cc3d.connected_components(labels_in_main) # 26-connected
         N = np.max(labels_out_main)
         # Dealing with boundary condition
@@ -38,7 +36,7 @@ class Domain:
             # if no labels at boundary, skip
             if labels_out.sum() == 0: continue
             # if there are labels at boundary
-            labels = np.unique(labels_out)
+            labels = np.unique(labels_out)[1:]
             for label in labels:
                 ends = labels_out == label
                 end1 = np.take(ends, range(0,layers), axis = idir)
@@ -86,20 +84,33 @@ class Domain:
         density = self.data[dset_name][region]
         dset_name = 'grav_pot'
         grav_pot = self.data[dset_name][region]
-        # Note the sign of input potential has been inverted
+        ## Note the sign of input potential has been inverted
         pot_ene = -(density*grav_pot).sum()
         return pot_ene
     def check_boundness(self):
         self.bounded_labels = []
+        self.ready_to_output_labels = []
         for label in self.labels:
             total_ene = 0
             region = self.labels_out == label
+            # if the region contains outputed structures, skip
+            if 0 in self.valid_domain[region]:
+                continue
+            # the region has no outputed structures, check boundness
             total_ene += self._kinetic_energy(region)
             total_ene += self._magnetic_energy(region)
             total_ene += self._thermal_energy(region)
             total_ene += self._potential_energy(region)
-            if total_ene < 0:
+            # if the region is bounded, mark it
+            if total_ene <= 0.:
                 self.bounded_labels.append(label)
+            # if the region is not bounded, check if the region
+            # contains bounded structure.
+            else:
+                if 2 in self.valid_domain[region]:
+                    self.ready_to_output_labels.append(label)
+                else:
+                    pass
     def _open_h5(self, initialize = False):
         dset_name = 'bounded_region'
         if initialize:
@@ -115,16 +126,19 @@ class Domain:
         else:
             f = self._open_h5()
         dset = f['bounded_region']
-        for label in self.bounded_labels:
+        for label in self.ready_to_output_labels:
             self.outputed_region += 1
             region = self.labels_out == label
             region_index = self.outputed_region
             dset[region] = region_index
         f.close()
-    def subtract_bounded_region(self):
+    def update_region_status(self):
+        for label in self.ready_to_output_labels:
+            region = self.labels_out == label
+            self.valid_domain[region] = 0
         for label in self.bounded_labels:
             region = self.labels_out == label
-            self.valid_domain[region] = False
+            self.valid_domain[region] = 2
 
     def load_zeus(self):
         keys = ['gas_density', 'grav_pot',  #'gas_energy',
@@ -135,4 +149,4 @@ class Domain:
             data = {key: f[key][()] for key in keys}
         self.data = data
         self.data_shape = data['grav_pot'].shape
-        self.valid_domain = np.ones(self.data_shape, dtype = bool)
+        self.valid_domain = np.ones(self.data_shape, dtype = np.int)
