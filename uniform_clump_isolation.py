@@ -84,8 +84,7 @@ class Domain:
         density = self.data[dset_name][region]
         dset_name = 'grav_pot'
         grav_pot = self.data[dset_name][region]
-        ## Note the sign of input potential has been inverted
-        pot_ene = -(density*grav_pot).sum()
+        pot_ene = (density*grav_pot).sum()
         return pot_ene
     def check_boundness(self):
         self.bounded_labels = []
@@ -100,7 +99,7 @@ class Domain:
             total_ene += self._kinetic_energy(region)
             total_ene += self._magnetic_energy(region)
             total_ene += self._thermal_energy(region)
-            total_ene += self._potential_energy(region)
+            total_ene -= self._potential_energy(region)
             # if the region is bounded, mark it
             if total_ene <= 0.:
                 self.bounded_labels.append(label)
@@ -111,21 +110,21 @@ class Domain:
                     self.ready_to_output_labels.append(label)
                 else:
                     pass
-    def _open_h5(self, initialize = False):
-        dset_name = 'bounded_region'
+    def _open_h5(self, dset_name, output_flnm, initialize = False):
         if initialize:
-            hf = h5py.File(self.output_flnm, 'w')
+            hf = h5py.File(output_flnm, 'w')
             empty_data = np.zeros(self.data_shape)
             hf.create_dataset(dset_name, data=empty_data)
         else:
-            hf = h5py.File(self.output_flnm, 'a')
+            hf = h5py.File(output_flnm, 'a')
         return hf
     def output_bounded_region(self):
+        dset_name = 'bounded_region'
         if self.outputed_region == 0:
-            f = self._open_h5(initialize=True)
+            f = self._open_h5(dset_name, self.output_flnm, initialize=True)
         else:
-            f = self._open_h5()
-        dset = f['bounded_region']
+            f = self._open_h5(dset_name, self.output_flnm)
+        dset = f[dset_name]
         for label in self.ready_to_output_labels:
             self.outputed_region += 1
             region = self.labels_out == label
@@ -150,3 +149,60 @@ class Domain:
         self.data = data
         self.data_shape = data['grav_pot'].shape
         self.valid_domain = np.ones(self.data_shape, dtype = np.int)
+
+    def _calculate_ratio(self, threshold, label):
+        region = np.logical_and(self.data['grav_pot'] >= threshold, 
+                                   self.result == label)
+        total_ene = 0
+        total_ene += self._kinetic_energy(region)
+        total_ene += self._magnetic_energy(region)
+        total_ene += self._thermal_energy(region)
+        return total_ene/self._potential_energy(region)
+    
+    def _search_potential(self, low, high, label, tolerance, max_steps):
+        i = 0
+        while (i <= max_steps):
+            mid = (low+high)/2.
+            ratio = self._calculate_ratio(mid, label)
+            print('ratio={}, label={},mid={}'.format(ratio, label, mid))
+            if ratio >= 1.-tolerance and ratio < 1.: 
+                return mid
+            elif ratio >= 1.:
+                low = mid
+            elif ratio < 1.-tolerance:
+                high = mid
+            i += 1
+        return mid
+
+    def retrive_potential(self, seq, tolerance = 0.05, max_steps = 50):
+        """
+        FOR label IN labels:
+            select region
+            determine potential range
+            search potential
+            update result
+        """
+        with h5py.File(self.output_flnm, "r") as f:
+            self.result = f["bounded_region"][()]
+        labels = np.arange(1, self.outputed_region + 1)
+        for label in labels:
+            region = self.result == label
+            pot_min = self.data['grav_pot'][region].min()
+            ratio = self._calculate_ratio(pot_min, label)
+            print(label,ratio)
+            if ratio >= 1.-tolerance and ratio < 1.: 
+                continue
+            pot_max = seq[seq>pot_min].min()
+            pot_retrived = self._search_potential(pot_min, pot_max, label,
+                    tolerance, max_steps)
+            selection = np.logical_and(self.data['grav_pot'] >= pot_retrived, 
+                                       region)
+            # retrive region
+            region[selection] = False
+            self.result[region] = 0
+        retrived_flnm = self.flnm+"retrived_result.h5"
+        dset_name = 'retrived_region'
+        f = self._open_h5(dset_name, retrived_flnm, initialize = True)
+        dset = f[dset_name]
+        dset = self.result
+        f.close()
