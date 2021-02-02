@@ -200,7 +200,7 @@ class Domain:
             # retrive region
             region[selection] = False
             self.result[region] = 0
-        retrived_flnm = self.flnm+"retrived_result.h5"
+        retrived_flnm = self.flnm+"_retrived_result.h5"
         dset_name = 'retrived_region'
         f = self._open_h5(dset_name, retrived_flnm, initialize = True)
         dset = f[dset_name]
