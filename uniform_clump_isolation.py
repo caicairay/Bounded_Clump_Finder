@@ -2,6 +2,31 @@ import numpy as np
 import h5py
 import cc3d
 
+def CCL(labels_in_main, layers=1):
+    labels_out_main = cc3d.connected_components(labels_in_main) # 26-connected
+    N = np.max(labels_out_main)
+    # Dealing with boundary condition
+    indices = np.arange(-layers,layers)
+    labels_in = [np.take(labels_in_main,indices,axis=idir) for idir in range(3)]
+    for idir in range(3):
+        labels_out = cc3d.connected_components(labels_in[idir]) # 26-connected
+        # if no labels at boundary, skip
+        if labels_out.sum() == 0: continue
+        # if there are labels at boundary
+        labels = np.unique(labels_out)[1:]
+        for label in labels:
+            ends = labels_out == label
+            end1 = np.take(ends, range(0,layers), axis = idir)
+            end2 = np.take(ends, range(-layers,0), axis = idir)
+            domain_end1 = np.take(labels_out_main,range(-layers,0),axis=idir) 
+            domain_end2 = np.take(labels_out_main,range(0,layers), axis=idir) 
+            domain_label1 = np.unique(domain_end1[end1])
+            domain_label2 = np.unique(domain_end2[end2])
+            labels_out_main[np.isin(labels_out_main, domain_label1)] = N+label
+            labels_out_main[np.isin(labels_out_main, domain_label2)] = N+label
+        N = np.max(labels_out_main)
+    return labels_out_main
+
 class Domain:
     """
     TODO:
@@ -23,33 +48,12 @@ class Domain:
     def set_sound_speed(self, snd):
         self.sound_speed = snd
 
-    def thresholding(self, threshold, field='grav_pot', layers=1):
+    def thresholding(self, threshold, field='grav_pot'):
         data_main = self.data[field]
         labels_in_main = data_main > threshold
-        labels_out_main = cc3d.connected_components(labels_in_main) # 26-connected
-        N = np.max(labels_out_main)
-        # Dealing with boundary condition
-        indices = np.arange(-layers,layers)
-        labels_in = [np.take(labels_in_main,indices,axis=idir) for idir in range(3)]
-        for idir in range(3):
-            labels_out = cc3d.connected_components(labels_in[idir]) # 26-connected
-            # if no labels at boundary, skip
-            if labels_out.sum() == 0: continue
-            # if there are labels at boundary
-            labels = np.unique(labels_out)[1:]
-            for label in labels:
-                ends = labels_out == label
-                end1 = np.take(ends, range(0,layers), axis = idir)
-                end2 = np.take(ends, range(-layers,0), axis = idir)
-                domain_end1 = np.take(labels_out_main,range(-layers,0),axis=idir) 
-                domain_end2 = np.take(labels_out_main,range(0,layers), axis=idir) 
-                domain_label1 = np.unique(domain_end1[end1])
-                domain_label2 = np.unique(domain_end2[end2])
-                labels_out_main[np.isin(labels_out_main, domain_label1)] = N+label
-                labels_out_main[np.isin(labels_out_main, domain_label2)] = N+label
-            N = np.max(labels_out_main)
+        labels_out_main = CCL(labels_in_main)
         self.labels_out = labels_out_main
-        self.labels = np.unique(labels_out_main)
+        self.labels = np.unique(labels_out_main)[1:]
 
     def _kinetic_energy(self, region):
         """
@@ -150,9 +154,17 @@ class Domain:
         self.data_shape = data['grav_pot'].shape
         self.valid_domain = np.ones(self.data_shape, dtype = np.int)
 
-    def _calculate_ratio(self, threshold, label):
-        region = np.logical_and(self.data['grav_pot'] >= threshold, 
+    def _cut_edges(self, threshold, label):
+        labels_in_main = np.logical_and(self.data['grav_pot'] >= threshold, 
                                    self.result == label)
+        labels_out_main = CCL(labels_in_main)
+        record = {}
+        for i in np.unique(labels_out_main)[1:]:
+            record[i] = (labels_out_main == i).sum()
+        saved_label = max(record, key=record.get)
+        self.cutted_region = labels_out_main == saved_label
+           
+    def _calculate_ratio(self, region):
         total_ene = 0
         total_ene += self._kinetic_energy(region)
         total_ene += self._magnetic_energy(region)
@@ -163,7 +175,8 @@ class Domain:
         i = 0
         while (i <= max_steps):
             mid = (low+high)/2.
-            ratio = self._calculate_ratio(mid, label)
+            self._cut_edges(mid, label)
+            ratio = self._calculate_ratio(self.cutted_region)
             print('ratio={}, label={},mid={}'.format(ratio, label, mid))
             if ratio >= 1.-tolerance and ratio < 1.: 
                 return mid
@@ -188,15 +201,10 @@ class Domain:
         for label in labels:
             region = self.result == label
             pot_min = self.data['grav_pot'][region].min()
-            ratio = self._calculate_ratio(pot_min, label)
-            print(label,ratio)
-            if ratio >= 1.-tolerance and ratio < 1.: 
-                continue
             pot_max = seq[seq>pot_min].min()
             pot_retrived = self._search_potential(pot_min, pot_max, label,
                     tolerance, max_steps)
-            selection = np.logical_and(self.data['grav_pot'] >= pot_retrived, 
-                                       region)
+            selection = self.cutted_region
             # retrive region
             region[selection] = False
             self.result[region] = 0
@@ -204,5 +212,5 @@ class Domain:
         dset_name = 'retrived_region'
         f = self._open_h5(dset_name, retrived_flnm, initialize = True)
         dset = f[dset_name]
-        dset = self.result
+        dset[()] = self.result
         f.close()
